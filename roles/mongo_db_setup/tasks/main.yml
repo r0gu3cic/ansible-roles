@@ -1,0 +1,81 @@
+---
+# Import mongodb key
+- name: Download MongoDB GPG key from 'https://pgp.mongodb.com/server-{{ mongodb_version }}.asc'
+  shell: curl -fsSL https://pgp.mongodb.com/server-{{ mongodb_version }}.asc | gpg -o /usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg --dearmor
+
+# Add mongodb repo 
+- name: Add mongodb repo
+  shell: echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-{{ mongodb_version }}.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/{{ mongodb_version }} multiverse" | tee /etc/apt/sources.list.d/mongodb-org-{{ mongodb_version }}.list
+
+# Update repositories
+- name: Update repositories cache
+  apt: 
+    update_cache: yes
+
+# Install mongodb
+- name: Install mongodb
+  apt: 
+    name: mongodb-org
+    state: latest
+
+# By default MongoDB is not started after installation, this task is necessary
+# Start and enable mongodb service
+- name: Start and enable mongodb service
+  service:
+    name: mongod
+    state: started
+    enabled: yes
+
+# Add MongoDB admin user
+# Install pip
+- name: install pip3
+  apt: 
+    name: python3-pip 
+    state: present 
+
+# pymongo required
+- name: pip install pymongo
+  pip: 
+    name: pymongo 
+    state: present
+
+# I had to make sure that community.mongodb collection is installed
+# ansible-galaxy collection install community.mongodb
+# ansible-galaxy collection list
+- name: Set up MongoDB admin user
+  community.mongodb.mongodb_user:
+    name: "{{ mongodb_admin_user }}"
+    password: "{{ mongodb_admin_password }}"
+    # to which db we are adding the user basically
+    database: admin
+    # no spaces are allowed in roles
+    roles: userAdminAnyDatabase,dbAdminAnyDatabase,readWriteAnyDatabase
+    state: present
+
+# Protect MongoDB server with password
+- name: Enable MongoDB authentication
+  replace:
+    path: /etc/mongod.conf
+    regexp: "#security:.*"
+    replace: |
+      security: 
+        authorization: enabled
+  notify:
+    - Restart MongoDB service
+
+# Enable remote access for MongoDB Compass for developers
+- name: Enable remote access to the MongoDB server 
+  replace: 
+    path: /etc/mongod.conf
+    regexp: "bindIp: 127.0.0.1.*"
+    #{{ ansible_host }} holds the server's IP address, source inventory file
+    replace: |
+        bindIp: 127.0.0.1,{{ ansible_host }}
+  notify:
+    - Restart MongoDB service
+- name: Allow connections on port 27017
+  ufw:
+    rule: allow
+    port: "27017"
+  notify:
+    - Reload UFW

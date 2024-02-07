@@ -1,0 +1,38 @@
+---
+# Add source
+- name: Add source
+  shell: curl -fsSL https://deb.nodesource.com/setup_{{node_version}}.x | sudo -E bash -
+# Update repositories
+- name: Update repositories cache
+  apt: 
+    update_cache: yes
+# Install specific node version
+- name: Install nodejs
+  apt: 
+    name: nodejs
+    state: present
+# Install build essentials
+- name: Install build-essentials
+  apt: 
+    name: build-essential
+    state: present
+- name: Install pm2
+  npm: 
+    name: pm2 
+    global: true
+# # Install yarn also
+# - name: Install yarn
+#   npm: 
+#     name: yarn
+#     global: true
+# Version control
+- name: Install n
+  npm: 
+    name: n
+    global: true
+# # Install nvm also
+# - name: Install nvm
+#   shell: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash
+# Set specific node version
+- name: Set specific node version
+  shell: n {{specific_node_version}}

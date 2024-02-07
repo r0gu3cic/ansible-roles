@@ -1,0 +1,137 @@
+---
+# Import Elasticsearch GPG key
+- name: Import Elastic GPG key
+  apt_key:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+    keyring: /usr/share/keyrings/elastic.gpg
+# Add Elasticsearch repository to sources.list
+- name: Add Elasticsearch repository to sources.list
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/elastic.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main"
+    state: present
+    filename: /etc/apt/sources.list.d/elastic-7.x.list
+# Update package lists
+- name: Update repositories cache
+  apt: 
+    update_cache: yes
+# Install Elasticsearch
+- name: Install Elasticsearch
+  apt: 
+    name: elasticsearch
+    state: present
+# Configure Elasticsearch to be publicly available
+- name: Set network.host config
+  replace:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "#*network.host.*"
+    replace: "network.host: {{ ansible_host }}"
+- name: Set discovery.seed_hosts config
+  replace:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "#*discovery.seed_hosts.*"
+    replace: "discovery.seed_hosts: [\"{{ ansible_host }}\"]"
+# Start and enable Elasticsearch
+- name: Start and enable Elasticsearch
+  service:
+    name: elasticsearch
+    state: started
+    enabled: true
+
+# Configure memory usage
+# Set custom Xms Xmx (min and max heap size)
+- name: Add heap size config file
+  template:
+    src: "files/custom.jvm.options"
+    dest: "/etc/elasticsearch/jvm.options.d/custom.jvm.options"
+    mode: "0644"
+- name: Restart elasticsearch service
+  service: 
+    name: elasticsearch
+    state: restarted
+# Turn off swap
+- name: Turn off all swap devices
+  shell: swapoff -a
+- name: Remove swap references from /etc/fstab
+  lineinfile:
+    path: /etc/fstab
+    state: absent
+    regexp: '^.*\sswap\s.*$'
+- name: Reload fstab
+  shell: mount -a
+# Set bootstrap.memory_lock config
+- name: Lock the memory on startup
+  replace:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "#*bootstrap.memory_lock.*"
+    replace: "bootstrap.memory_lock: true"
+- name: Create the directory for systemd module override config
+  file:
+    path: "/etc/systemd/system/elasticsearch.service.d"
+    state: directory
+# Override systemd config for elasticsearch service
+- name: Override systemd config for elasticsearch service
+  template:
+    src: "files/override.conf"
+    dest: "/etc/systemd/system/elasticsearch.service.d/override.conf"
+    mode: "0644"
+- name: Reload systemd files
+  shell: systemctl daemon-reload
+- name: Restart elasticsearch service
+  service: 
+    name: elasticsearch
+    state: restarted
+
+# Make sure that this setup is at least somehow secure
+# Enable xpack.security.enabled: true
+- name: Append a line to a file
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: "xpack.security.enabled: true"
+    insertafter: EOF  # You can specify a unique string to locate the position for appending
+    state: present
+# Set discovery.type: single-node
+- name: Append a line to a file
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: "discovery.type: single-node"
+    insertafter: EOF  # You can specify a unique string to locate the position for appending
+    state: present
+# Restart elasticsearch service to get new config
+- name: Restart elasticsearch service
+  service: 
+    name: elasticsearch
+    state: restarted
+# Create a superuser
+- name: Create a superuser
+  shell:
+    cmd: ./elasticsearch-users useradd {{ elasticsearch_user }} -p {{ elasticsearch_password }} -r superuser
+    chdir: /usr/share/elasticsearch/bin
+
+# Delay before testing Elasticsearch API
+- name: Delay before locally testing Elasticsearch API
+  pause:
+    seconds: 10
+# Test Elasticsearch config with user
+- name: Test locally Elasticsearch API connection
+  uri:
+    url: "http://{{ ansible_host }}:9200"
+    method: GET
+    user: "{{ elasticsearch_user }}"
+    password: "{{ elasticsearch_password }}"
+  register: elastic_info
+- name: Display Elasticsearch API connection info
+  debug:
+    var: elastic_info.json
+
+# Configure UFW for Elasticsearch
+- name: Change UFW configuration, allow Elasticsearch on port 9200
+  ufw:
+    rule: allow
+    port: "9200"
+  notify:
+    - reload ufw
+
+# After this playbook Elastic search will be accessible over the internet if you have credentials
+# Use the command bellow to test it 
+# curl -X GET "<server_ip>:9200" -u <username>:<password>

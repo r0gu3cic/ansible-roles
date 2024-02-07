@@ -1,0 +1,134 @@
+---
+# Update repositories
+- name: Update repositories cache
+  apt: 
+    update_cache: yes
+
+# Set timezone to UTC
+- name: Set servers timezone
+  timezone:
+    name: UTC
+
+# Install necessary packages, start and enable them
+- name: Install aptitude
+  apt: name={{item}} state=present force_apt_get=yes
+  loop: ["aptitude"]
+- name: Install basic security packages
+  apt: name={{item}} state=present
+  loop: ["ufw", "fail2ban", "unattended-upgrades", "logrotate"]
+
+# Configure UFW for SSH
+- name: Change UFW configuration, allow SSH on port 22
+  ufw:
+    rule: allow
+    port: "22"
+  notify:
+    - reload ufw
+    - enable ufw
+# Configure SSH, changing only non default entries
+- name: Change SSH configuration, set PasswordAuthentication entry
+  replace:
+    path: /etc/ssh/sshd_config
+    regexp: "#*PasswordAuthentication.*"
+    replace: "PasswordAuthentication no"
+  notify:
+    - reload ssh
+
+# Configure journal disk usage
+- name: Change journal configuration, set SystemMaxUse entry
+  replace:
+    path: /etc/systemd/journald.conf
+    regexp: "#SystemMaxUse.*"
+    replace: "{{ ('SystemMaxUse=' + journalctl_max_disk_usage) }}"
+  notify:
+    - restart journald
+
+# Configure unattended-upgrades
+# Default is good enough for now
+
+# Configure logrotate
+# Default is good enough for now
+
+# Configure fail2ban
+- name: Create ssh jail 
+  template:
+    src: "files/sshd.conf"
+    dest: "/etc/fail2ban/jail.d/sshd.conf"
+  notify:
+    - reload fail2ban
+
+# Enable installed services
+- name: Start installed services
+  service: name={{item}} state=started
+  loop: ["ufw", "fail2ban", "unattended-upgrades", "logrotate"]
+- name: Enable installed services
+  service: name={{item}} enabled=yes
+  loop: ["ufw", "fail2ban", "unattended-upgrades", "logrotate"]
+
+# Install additional tools
+- name: Install additional tools for a better quality of life
+  apt: name={{item}} state=present
+  loop: ["htop", "tree", "net-tools", "zip", "wget", "tcpdump", "curl", "git", "mc"]
+
+# Install nginx
+- name: Install nginx
+  apt: 
+    name: nginx
+    state: present
+# Remove default nginx site
+- name: Remove default nginx site
+  file:
+    path: "/etc/nginx/sites-enabled/default"
+    state: absent
+  notify: 
+    - reload nginx
+# Configure UFW to accept HTTP requests
+- name: Change UFW configuration, allow HTTP on port 80
+  ufw:
+    rule: allow
+    port: "80"
+  notify:
+    - reload ufw
+# Configure UFW to accept HTTPS requests
+- name: Change UFW configuration, allow HTTPS on port 443
+  ufw:
+    rule: allow
+    port: "443"
+  notify:
+    - reload ufw
+
+# Install certbot
+- name: Install certbot
+  apt: 
+    name: certbot
+    state: present
+# Enable auto-renew for SSL certificates
+- name: Create a crontab job for all SSL certificates renewal
+  cron:
+    cron_file: "ssl-certificates-renewal" #this file will be stored in /etc/cron.d/
+    user: root
+    job: '/usr/bin/certbot renew --quiet && /usr/bin/systemctl reload nginx.service'
+    name: SSL certcertificates auto-renew
+    minute: '0'
+    hour: '7'
+
+# Install required dependencies for the basic HTTP auth
+# Install pip
+- name: install pip3
+  apt: 
+    name: python3-pip 
+    state: present 
+# Passlib >= 1.6 required
+- name: Make sure we can use htpasswd module
+  pip: 
+    name: passlib 
+    state: present
+
+# Update system repositories cache and upgrade system
+- name: Update repositories cache
+  apt: 
+    update_cache: yes
+# Upgrade system
+- name: Upgrade system 
+  apt:
+    upgrade: full

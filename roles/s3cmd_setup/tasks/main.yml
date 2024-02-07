@@ -1,0 +1,15 @@
+---
+# Install s3cmd tool
+- name: Install s3cmd tool
+  apt: name={{item}} cache_valid_time=500 state=present
+  loop: ["s3cmd"]
+# To configure s3cmd I need to create an s3 bucket that will be used along with the keys...
+- name: Setup s3cmd configuration for backup on DigitalOcean space
+  template:
+    src: "files/.s3cfg.j2"
+    dest: "/home/{{web_username}}/.s3cfg"
+    owner: root
+    group: root
+    mode: "0600"
+# It is working, tested with root user, using command
+# s3cmd --config=/home/webuser/.s3cfg ls s3://prime-packaging-backup/

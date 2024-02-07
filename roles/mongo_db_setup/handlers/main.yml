@@ -1,0 +1,9 @@
+---
+- name: Restart MongoDB service
+  service:
+    name: mongod
+    state: restarted
+
+- name: Reload UFW
+  ufw:
+    state: reloaded
